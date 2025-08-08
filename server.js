@@ -1,4 +1,4 @@
-// server.js - VERSIÓN FINAL CON LÍNEA GANADORA
+// server.js - VERSIÓN FINAL CON MENSAJES ESTANDARIZADOS
 const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
@@ -17,38 +17,16 @@ function createNewGameState(size) {
     let winCondition = size > 4 ? 5 : (size === 4 ? 4 : 3);
     return {
         size, winCondition,
-        playersInfo: { X: { name: null, connected: false }, O: { name: null, connected: false } },
+        playersInfo: { X: { id: null, name: null, connected: false }, O: { id: null, name: null, connected: false } },
         board: Array(size * size).fill(null),
         currentPlayer: 'X',
         gameActive: true,
-        scores: { X: 0, O: 0 }
+        scores: { X: 0, O: 0 },
+        lastMoveIndex: null
     };
 }
 
 function checkWin(board, size, winCondition) {
-    // Para la animación, solo calcularemos la línea específica para 3x3
-    if (size === 3) {
-        const lines3x3 = [
-            { id: 'win-row-0', indexes: [0, 1, 2] }, { id: 'win-row-1', indexes: [3, 4, 5] }, { id: 'win-row-2', indexes: [6, 7, 8] },
-            { id: 'win-col-0', indexes: [0, 3, 6] }, { id: 'win-col-1', indexes: [1, 4, 7] }, { id: 'win-col-2', indexes: [2, 5, 8] },
-            { id: 'win-diag-0', indexes: [0, 4, 8] }, { id: 'win-diag-1', indexes: [2, 4, 6] }
-        ];
-        for (const line of lines3x3) {
-            const [a, b, c] = line.indexes;
-            if (board[a] && board[a] === board[b] && board[a] === board[c]) {
-                return { winner: board[a], lineId: line.id }; // Retorna objeto con ganador y línea
-            }
-        }
-    }
-
-    // Para otros tamaños, solo detectamos al ganador sin la línea visual
-    const winnerSymbol = checkWinDynamic(board, size, winCondition);
-    if (winnerSymbol) return { winner: winnerSymbol, lineId: null };
-
-    return null; // No hay ganador
-}
-
-function checkWinDynamic(board, size, winCondition) {
     const getCell = (r, c) => r * size + c;
     for (let r = 0; r < size; r++) {
         for (let c = 0; c < size; c++) {
@@ -64,7 +42,11 @@ function checkWinDynamic(board, size, winCondition) {
 }
 
 function broadcast(data) {
-    players.forEach(p => { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify(data)) });
+    players.forEach(player => {
+        if (player.ws && player.ws.readyState === WebSocket.OPEN) {
+            player.ws.send(JSON.stringify(data));
+        }
+    });
 }
 
 function resetGame() {
@@ -81,38 +63,66 @@ function resetGame() {
 }
 
 wss.on('connection', ws => {
-    if (players.length >= 2) {
-        ws.send(JSON.stringify({ type: 'error', message: 'La partida ya está llena.' }));
-        ws.close();
-        return;
-    }
-    const player = { ws, symbol: players.length === 0 ? 'X' : 'O' };
-    players.push(player);
-
     ws.on('message', message => {
         try {
             const data = JSON.parse(message);
             const { type, payload } = data;
 
             if (type === 'join') {
+                if (players.length >= 2) {
+                    // CORREGIDO: El mensaje de error ahora usa 'payload'
+                    ws.send(JSON.stringify({ type: 'error', payload: { message: 'La partida ya está llena.' } }));
+                    return;
+                }
+                const playerId = uuidv4();
+                const symbol = players.length === 0 ? 'X' : 'O';
+                const player = { ws, playerId, symbol };
+                players.push(player);
+
                 if (!gameState) {
                     gameState = createNewGameState(payload.size);
                 }
-                gameState.playersInfo[player.symbol] = { name: payload.name, connected: true };
-                ws.send(JSON.stringify({ type: 'assignSymbol', payload: { symbol: player.symbol } }));
+                
+                gameState.playersInfo[symbol] = { id: playerId, name: payload.name, connected: true };
+                
+                ws.send(JSON.stringify({ type: 'assignIdentity', payload: { symbol, playerId } }));
                 broadcast({ type: 'update', payload: { gameState } });
             }
 
-            if (type === 'move') {
-                if (!gameState || !gameState.gameActive || player.symbol !== gameState.currentPlayer) return;
+            if (type === 'reconnect') {
+                const { playerId } = payload;
+                const playerToReconnect = players.find(p => p.playerId === playerId);
+
+                if (playerToReconnect && gameState) {
+                    playerToReconnect.ws = ws;
+                    gameState.playersInfo[playerToReconnect.symbol].connected = true;
+                    
+                    if (playerToReconnect.disconnectTimer) {
+                        clearTimeout(playerToReconnect.disconnectTimer);
+                        playerToReconnect.disconnectTimer = null;
+                    }
+                    
+                    console.log(`Jugador ${gameState.playersInfo[playerToReconnect.symbol].name} reconectado.`);
+                    broadcast({ type: 'update', payload: { gameState } });
+                } else {
+                    // CORREGIDO: El mensaje de error ahora usa 'payload'
+                    ws.send(JSON.stringify({ type: 'error', payload: { message: 'No se pudo reconectar. Empezando de nuevo.' } }));
+                }
+            }
+
+            const player = players.find(p => p.ws === ws);
+            if (!player) return;
+
+            if (type === 'move' && gameState && gameState.gameActive && player.symbol === gameState.currentPlayer) {
                 if (gameState.board[payload.index] === null) {
                     gameState.board[payload.index] = gameState.currentPlayer;
-                    const result = checkWin(gameState.board, gameState.size, gameState.winCondition);
+                    gameState.lastMoveIndex = payload.index;
+                    const winnerSymbol = checkWin(gameState.board, gameState.size, gameState.winCondition);
 
-                    if (result) {
+                    if (winnerSymbol) {
                         gameState.gameActive = false;
-                        gameState.scores[result.winner]++;
-                        broadcast({ type: 'gameOver', payload: { winnerSymbol: result.winner, winningLineId: result.lineId, gameState } });
+                        gameState.scores[winnerSymbol]++;
+                        broadcast({ type: 'gameOver', payload: { winnerSymbol, gameState } });
                     } else if (!gameState.board.includes(null)) {
                         gameState.gameActive = false;
                         broadcast({ type: 'gameOver', payload: { winnerSymbol: 'draw', gameState } });
@@ -122,7 +132,7 @@ wss.on('connection', ws => {
                     }
                 }
             }
-
+            
             if (type === 'reset') {
                 if(players.length === 2 && gameState) resetGame();
             }
@@ -133,13 +143,28 @@ wss.on('connection', ws => {
     });
 
     ws.on('close', () => {
-        players = players.filter(p => p.ws !== ws);
-        gameState = null;
-        broadcast({ type: 'opponentLeft' });
+        const disconnectedPlayer = players.find(p => p.ws === ws);
+        if (!disconnectedPlayer) return;
+
+        console.log(`Jugador ${disconnectedPlayer.playerId} desconectado temporalmente.`);
+        if (gameState) {
+            gameState.playersInfo[disconnectedPlayer.symbol].connected = false;
+            broadcast({ type: 'opponentDisconnected', payload: { gameState } });
+            
+            disconnectedPlayer.disconnectTimer = setTimeout(() => {
+                if(gameState && !gameState.playersInfo[disconnectedPlayer.symbol].connected) {
+                    console.log(`Período de gracia terminado para ${disconnectedPlayer.playerId}. Terminando partida.`);
+                    // CORREGIDO: El mensaje de fin de partida ahora usa 'payload'
+                    broadcast({ type: 'gameEnded', payload: { message: 'El oponente no se reconectó a tiempo.' } });
+                    players = [];
+                    gameState = null;
+                }
+            }, 15000);
+        }
     });
 });
 
 const PORT = 3000;
 server.listen(PORT, () => {
-    console.log(`🚀 Servidor con línea ganadora corriendo en http://localhost:${PORT}`);
+    console.log(`🚀 Servidor con reconexión corriendo en http://localhost:${PORT}`);
 });
