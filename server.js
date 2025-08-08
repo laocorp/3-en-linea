@@ -1,7 +1,8 @@
-// server.js - VERSIÓN FINAL CON TABLERO DINÁMICO
+// server.js - VERSIÓN OPTIMIZADA CON CLASE GAME
 const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
+const { v4: uuidv4 } = require('uuid');
 
 const app = express();
 const server = http.createServer(app);
@@ -9,175 +10,173 @@ const wss = new WebSocket.Server({ server });
 
 app.use(express.static('public'));
 
-let players = [];
-let gameState = null; // El estado del juego se creará cuando el primer jugador se una.
-
 /**
- * Crea un objeto de estado de juego nuevo basado en el tamaño del tablero.
- * @param {number} size - El tamaño del lado del tablero (ej. 3 para un 3x3).
- * @returns {object} El objeto de estado del juego inicializado.
+ * La clase Game encapsula toda la lógica y el estado de una partida.
  */
-function createNewGameState(size) {
-    let winCondition;
-    if (size === 3) winCondition = 3;
-    else if (size === 4) winCondition = 4;
-    else winCondition = 5; // Para 5x5 y 6x6, se necesitan 5 en raya.
+class Game {
+    constructor() {
+        this.players = [];
+        this.gameState = null;
+        console.log("Nueva instancia de juego creada. Esperando jugadores.");
+    }
 
-    return {
-        size: size,
-        winCondition: winCondition,
-        playersInfo: { X: null, O: null },
-        board: Array(size * size).fill(null),
-        currentPlayer: 'X',
-        gameActive: true,
-        scores: { X: 0, O: 0 }
-    };
-}
+    // --- Métodos de Gestión de Jugadores ---
 
-/**
- * ALGORITMO DE VICTORIA DINÁMICO
- * Revisa el tablero para ver si algún jugador ha ganado.
- * @param {Array<string|null>} board - El estado actual del tablero.
- * @param {number} size - El tamaño del tablero (ej. 3, 4, 5, o 6).
- * @param {number} winCondition - El número de fichas en raya necesarias para ganar.
- * @returns {string|null} Retorna el símbolo del ganador ('X' o 'O') o null si no hay ganador.
- */
-function checkWin(board, size, winCondition) {
-    const getCell = (row, col) => row * size + col;
+    addPlayer(ws) {
+        if (this.players.length >= 2) {
+            ws.send(JSON.stringify({ type: 'error', message: 'La partida ya está llena.' }));
+            ws.close();
+            return null;
+        }
+        const player = {
+            ws,
+            playerId: uuidv4(),
+            symbol: this.players.length === 0 ? 'X' : 'O'
+        };
+        this.players.push(player);
+        console.log(`Jugador ${player.playerId} conectado como ${player.symbol}. Total: ${this.players.length}`);
+        return player;
+    }
 
-    for (let row = 0; row < size; row++) {
-        for (let col = 0; col < size; col++) {
-            const player = board[getCell(row, col)];
-            if (!player) continue;
+    removePlayer(ws) {
+        const disconnectedPlayer = this.players.find(p => p.ws === ws);
+        if (!disconnectedPlayer) return;
 
-            // Comprobar horizontal (→)
-            if (col <= size - winCondition) {
-                let count = 1;
-                for (let i = 1; i < winCondition; i++) {
-                    if (board[getCell(row, col + i)] === player) count++;
-                }
-                if (count === winCondition) return player;
-            }
+        console.log(`Jugador ${disconnectedPlayer.playerId} desconectado.`);
+        this.players = this.players.filter(p => p.ws !== ws);
 
-            // Comprobar vertical (↓)
-            if (row <= size - winCondition) {
-                let count = 1;
-                for (let i = 1; i < winCondition; i++) {
-                    if (board[getCell(row + i, col)] === player) count++;
-                }
-                if (count === winCondition) return player;
-            }
-
-            // Comprobar diagonal (↘)
-            if (row <= size - winCondition && col <= size - winCondition) {
-                let count = 1;
-                for (let i = 1; i < winCondition; i++) {
-                    if (board[getCell(row + i, col + i)] === player) count++;
-                }
-                if (count === winCondition) return player;
-            }
-
-            // Comprobar diagonal (↙)
-            if (row <= size - winCondition && col >= winCondition - 1) {
-                let count = 1;
-                for (let i = 1; i < winCondition; i++) {
-                    if (board[getCell(row + i, col - i)] === player) count++;
-                }
-                if (count === winCondition) return player;
-            }
+        if (this.players.length < 2) {
+            this.gameState = null; // Resetea el juego por completo.
+            this.broadcast({ type: 'opponentLeft' });
+            console.log("Partida terminada por desconexión.");
         }
     }
-    return null;
-}
 
-function broadcast(data) {
-    players.forEach(player => {
-        if (player.ws.readyState === WebSocket.OPEN) {
-            player.ws.send(JSON.stringify(data));
+    findPlayer(ws) {
+        return this.players.find(p => p.ws === ws);
+    }
+    
+    broadcast(data) {
+        this.players.forEach(player => {
+            if (player.ws && player.ws.readyState === WebSocket.OPEN) {
+                player.ws.send(JSON.stringify(data));
+            }
+        });
+    }
+
+    // --- Métodos de Lógica del Juego ---
+
+    handleMessage(ws, data) {
+        const player = this.findPlayer(ws);
+        if (!player) return;
+
+        const { type, payload } = data;
+
+        switch (type) {
+            case 'join':
+                this._handleJoin(player, payload);
+                break;
+            case 'move':
+                this._handleMove(player, payload);
+                break;
+            case 'reset':
+                this._handleReset();
+                break;
         }
-    });
+    }
+
+    _handleJoin(player, payload) {
+        if (!this.gameState) {
+            this.gameState = this._createNewGameState(payload.size);
+        }
+        this.gameState.playersInfo[player.symbol] = { id: player.playerId, name: payload.name, connected: true };
+        player.ws.send(JSON.stringify({ type: 'assignIdentity', payload: { symbol: player.symbol, playerId: player.playerId } }));
+        this.broadcast({ type: 'update', payload: { gameState: this.gameState } });
+    }
+
+    _handleMove(player, payload) {
+        if (!this.gameState || !this.gameState.gameActive || player.symbol !== this.gameState.currentPlayer) return;
+        if (this.gameState.board[payload.index] !== null) return;
+
+        this.gameState.board[payload.index] = this.gameState.currentPlayer;
+        const winnerSymbol = this._checkWin();
+
+        if (winnerSymbol) {
+            this.gameState.gameActive = false;
+            this.gameState.scores[winnerSymbol]++;
+            this.broadcast({ type: 'gameOver', payload: { winnerSymbol, gameState: this.gameState } });
+        } else if (!this.gameState.board.includes(null)) {
+            this.gameState.gameActive = false;
+            this.broadcast({ type: 'gameOver', payload: { winnerSymbol: 'draw', gameState: this.gameState } });
+        } else {
+            this.gameState.currentPlayer = this.gameState.currentPlayer === 'X' ? 'O' : 'X';
+            this.broadcast({ type: 'update', payload: { gameState: this.gameState } });
+        }
+    }
+    
+    _handleReset() {
+        if (!this.gameState || this.players.length < 2) return;
+        const oldScores = this.gameState.scores;
+        const oldPlayerNames = this.gameState.playersInfo;
+        const size = this.gameState.size;
+        
+        this.gameState = this._createNewGameState(size);
+        this.gameState.scores = oldScores;
+        this.gameState.playersInfo = oldPlayerNames;
+        this.broadcast({ type: 'update', payload: { gameState: this.gameState } });
+    }
+
+    _createNewGameState(size) {
+        let winCondition = size > 4 ? 5 : (size === 4 ? 4 : 3);
+        return {
+            size, winCondition,
+            playersInfo: { X: { id: null, name: null, connected: false }, O: { id: null, name: null, connected: false } },
+            board: Array(size * size).fill(null),
+            currentPlayer: 'X',
+            gameActive: true,
+            scores: { X: 0, O: 0 }
+        };
+    }
+    
+    _checkWin() {
+        const { board, size, winCondition } = this.gameState;
+        const getCell = (r, c) => r * size + c;
+
+        for (let r = 0; r < size; r++) {
+            for (let c = 0; c < size; c++) {
+                const player = board[getCell(r, c)];
+                if (!player) continue;
+
+                if (c <= size - winCondition && Array.from({length: winCondition}, (_, i) => board[getCell(r, c + i)]).every(p => p === player)) return player;
+                if (r <= size - winCondition && Array.from({length: winCondition}, (_, i) => board[getCell(r + i, c)]).every(p => p === player)) return player;
+                if (r <= size - winCondition && c <= size - winCondition && Array.from({length: winCondition}, (_, i) => board[getCell(r + i, c + i)]).every(p => p === player)) return player;
+                if (r <= size - winCondition && c >= winCondition - 1 && Array.from({length: winCondition}, (_, i) => board[getCell(r + i, c - i)]).every(p => p === player)) return player;
+            }
+        }
+        return null;
+    }
 }
 
-function resetGame() {
-    const oldScores = gameState.scores;
-    const oldPlayerNames = gameState.playersInfo;
-    const size = gameState.size;
-    gameState = createNewGameState(size);
-    gameState.scores = oldScores;
-    gameState.playersInfo = oldPlayerNames;
-    broadcast({ type: 'update', payload: { gameState } });
-}
+// Creamos una única instancia de nuestro juego.
+const game = new Game();
 
 wss.on('connection', ws => {
-    if (players.length >= 2) {
-        ws.send(JSON.stringify({ type: 'error', message: 'La partida ya está llena.' }));
-        ws.close();
-        return;
-    }
-
-    const player = {
-        ws,
-        symbol: players.length === 0 ? 'X' : 'O'
-    };
-    players.push(player);
-    console.log(`Jugador conectado. Total: ${players.length}`);
+    const player = game.addPlayer(ws);
 
     ws.on('message', message => {
         try {
-            const data = JSON.parse(message);
-            const { type, payload } = data;
-
-            if (type === 'join') {
-                if (!gameState) {
-                    gameState = createNewGameState(payload.size);
-                }
-                gameState.playersInfo[player.symbol] = payload.name;
-                ws.send(JSON.stringify({ type: 'assignSymbol', payload: { symbol: player.symbol } }));
-                broadcast({ type: 'update', payload: { gameState } });
-            }
-
-            if (type === 'move') {
-                // Esta guarda es la defensa principal del servidor.
-                if (!gameState || !gameState.gameActive) return;
-
-                if (player.symbol === gameState.currentPlayer) {
-                    if (gameState.board[payload.index] === null) {
-                        gameState.board[payload.index] = gameState.currentPlayer;
-                        const winnerSymbol = checkWin(gameState.board, gameState.size, gameState.winCondition);
-
-                        if (winnerSymbol) {
-                            gameState.gameActive = false;
-                            gameState.scores[winnerSymbol]++;
-                            broadcast({ type: 'gameOver', payload: { winnerSymbol, gameState } });
-                        } else if (!gameState.board.includes(null)) {
-                            gameState.gameActive = false;
-                            broadcast({ type: 'gameOver', payload: { winnerSymbol: 'draw', gameState } });
-                        } else {
-                            gameState.currentPlayer = gameState.currentPlayer === 'X' ? 'O' : 'X';
-                            broadcast({ type: 'update', payload: { gameState } });
-                        }
-                    }
-                }
-            }
-
-            if (type === 'reset') {
-                if(players.length === 2 && gameState) resetGame();
-            }
-
+            game.handleMessage(ws, JSON.parse(message));
         } catch (error) {
             console.error("Error procesando mensaje:", error);
         }
     });
 
     ws.on('close', () => {
-        players = players.filter(p => p.ws !== ws);
-        console.log(`Jugador desconectado. Total: ${players.length}`);
-        gameState = null;
-        broadcast({ type: 'opponentLeft' });
+        game.removePlayer(ws);
     });
 });
 
 const PORT = 3000;
 server.listen(PORT, () => {
-    console.log(`🚀 Servidor con tablero dinámico corriendo en http://localhost:${PORT}`);
+    console.log(`🚀 Servidor optimizado corriendo en http://localhost:${PORT}`);
 });
