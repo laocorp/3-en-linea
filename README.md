@@ -88,3 +88,11 @@ Asegúrate de tener instalado [Node.js](https://nodejs.org/) (que incluye npm).
 ## **Estructura del Proyecto** 📂
 
 El repositorio está organizado de la siguiente manera:
+/
+├── public/                 # Contiene los archivos del frontend
+│   ├── sounds/             # Archivos de audio del juego
+│   ├── index.html          # Estructura principal de la UI
+│   └── script.js           # Lógica del cliente y manipulación del DOM
+├── server.js               # Lógica del backend, servidor web y WebSocket
+├── package.json            # Define las dependencias y scripts del proyecto
+└── README.md               # Este archivo
