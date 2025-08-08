@@ -52,7 +52,7 @@ Asegúrate de tener instalado [Node.js](https://nodejs.org/) (que incluye npm).
 
 1.  **Clona el repositorio** (o descarga los archivos en una carpeta):
     ```bash
-    git clone [https://github.com/laocorp/3-en-linea.git]
+    git clone https://github.com/laocorp/3-en-linea.git
     ```
 
 2.  **Navega a la carpeta del proyecto:**
