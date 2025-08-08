@@ -1,2 +1,31 @@
-node_modules
-.-json
+# ## Dependencias de Node.js ##
+# Esta es la línea más importante. La carpeta node_modules contiene miles de
+# archivos que se pueden reinstalar fácilmente con 'npm install'.
+# Nunca debe subirse a un repositorio.
+node_modules/
+
+# ## Archivos de Log ##
+# Archivos de registro que se generan durante la ejecución o depuración.
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+
+# ## Archivos del Sistema Operativo ##
+# Archivos de metadatos generados por macOS y Windows.
+.DS_Store
+Thumbs.db
+
+# ## Archivos de Entorno ##
+# Archivos que a menudo contienen claves de API, contraseñas y otros secretos.
+# Es una buena práctica ignorarlos siempre, aunque no los uses ahora.
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# ## Archivos del Editor de Código ##
+# Carpetas de configuración generadas por editores como VS Code o WebStorm.
+.vscode/
+.idea/
