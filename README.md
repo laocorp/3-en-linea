@@ -57,7 +57,7 @@ Asegúrate de tener instalado [Node.js](https://nodejs.org/) (que incluye npm).
 
 2.  **Navega a la carpeta del proyecto:**
     ```bash
-    cd tic-tac-toe-online
+    cd 3-en-linea
     ```
 
 3.  **Instala las dependencias del servidor:**
