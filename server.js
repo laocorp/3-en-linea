@@ -1,4 +1,4 @@
-// server.js - VERSIÓN OPTIMIZADA CON CLASE GAME
+// server.js - VERSIÓN FINAL CON LÍNEA GANADORA
 const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
@@ -10,173 +10,136 @@ const wss = new WebSocket.Server({ server });
 
 app.use(express.static('public'));
 
-/**
- * La clase Game encapsula toda la lógica y el estado de una partida.
- */
-class Game {
-    constructor() {
-        this.players = [];
-        this.gameState = null;
-        console.log("Nueva instancia de juego creada. Esperando jugadores.");
-    }
+let players = [];
+let gameState = null;
 
-    // --- Métodos de Gestión de Jugadores ---
-
-    addPlayer(ws) {
-        if (this.players.length >= 2) {
-            ws.send(JSON.stringify({ type: 'error', message: 'La partida ya está llena.' }));
-            ws.close();
-            return null;
-        }
-        const player = {
-            ws,
-            playerId: uuidv4(),
-            symbol: this.players.length === 0 ? 'X' : 'O'
-        };
-        this.players.push(player);
-        console.log(`Jugador ${player.playerId} conectado como ${player.symbol}. Total: ${this.players.length}`);
-        return player;
-    }
-
-    removePlayer(ws) {
-        const disconnectedPlayer = this.players.find(p => p.ws === ws);
-        if (!disconnectedPlayer) return;
-
-        console.log(`Jugador ${disconnectedPlayer.playerId} desconectado.`);
-        this.players = this.players.filter(p => p.ws !== ws);
-
-        if (this.players.length < 2) {
-            this.gameState = null; // Resetea el juego por completo.
-            this.broadcast({ type: 'opponentLeft' });
-            console.log("Partida terminada por desconexión.");
-        }
-    }
-
-    findPlayer(ws) {
-        return this.players.find(p => p.ws === ws);
-    }
-    
-    broadcast(data) {
-        this.players.forEach(player => {
-            if (player.ws && player.ws.readyState === WebSocket.OPEN) {
-                player.ws.send(JSON.stringify(data));
-            }
-        });
-    }
-
-    // --- Métodos de Lógica del Juego ---
-
-    handleMessage(ws, data) {
-        const player = this.findPlayer(ws);
-        if (!player) return;
-
-        const { type, payload } = data;
-
-        switch (type) {
-            case 'join':
-                this._handleJoin(player, payload);
-                break;
-            case 'move':
-                this._handleMove(player, payload);
-                break;
-            case 'reset':
-                this._handleReset();
-                break;
-        }
-    }
-
-    _handleJoin(player, payload) {
-        if (!this.gameState) {
-            this.gameState = this._createNewGameState(payload.size);
-        }
-        this.gameState.playersInfo[player.symbol] = { id: player.playerId, name: payload.name, connected: true };
-        player.ws.send(JSON.stringify({ type: 'assignIdentity', payload: { symbol: player.symbol, playerId: player.playerId } }));
-        this.broadcast({ type: 'update', payload: { gameState: this.gameState } });
-    }
-
-    _handleMove(player, payload) {
-        if (!this.gameState || !this.gameState.gameActive || player.symbol !== this.gameState.currentPlayer) return;
-        if (this.gameState.board[payload.index] !== null) return;
-
-        this.gameState.board[payload.index] = this.gameState.currentPlayer;
-        const winnerSymbol = this._checkWin();
-
-        if (winnerSymbol) {
-            this.gameState.gameActive = false;
-            this.gameState.scores[winnerSymbol]++;
-            this.broadcast({ type: 'gameOver', payload: { winnerSymbol, gameState: this.gameState } });
-        } else if (!this.gameState.board.includes(null)) {
-            this.gameState.gameActive = false;
-            this.broadcast({ type: 'gameOver', payload: { winnerSymbol: 'draw', gameState: this.gameState } });
-        } else {
-            this.gameState.currentPlayer = this.gameState.currentPlayer === 'X' ? 'O' : 'X';
-            this.broadcast({ type: 'update', payload: { gameState: this.gameState } });
-        }
-    }
-    
-    _handleReset() {
-        if (!this.gameState || this.players.length < 2) return;
-        const oldScores = this.gameState.scores;
-        const oldPlayerNames = this.gameState.playersInfo;
-        const size = this.gameState.size;
-        
-        this.gameState = this._createNewGameState(size);
-        this.gameState.scores = oldScores;
-        this.gameState.playersInfo = oldPlayerNames;
-        this.broadcast({ type: 'update', payload: { gameState: this.gameState } });
-    }
-
-    _createNewGameState(size) {
-        let winCondition = size > 4 ? 5 : (size === 4 ? 4 : 3);
-        return {
-            size, winCondition,
-            playersInfo: { X: { id: null, name: null, connected: false }, O: { id: null, name: null, connected: false } },
-            board: Array(size * size).fill(null),
-            currentPlayer: 'X',
-            gameActive: true,
-            scores: { X: 0, O: 0 }
-        };
-    }
-    
-    _checkWin() {
-        const { board, size, winCondition } = this.gameState;
-        const getCell = (r, c) => r * size + c;
-
-        for (let r = 0; r < size; r++) {
-            for (let c = 0; c < size; c++) {
-                const player = board[getCell(r, c)];
-                if (!player) continue;
-
-                if (c <= size - winCondition && Array.from({length: winCondition}, (_, i) => board[getCell(r, c + i)]).every(p => p === player)) return player;
-                if (r <= size - winCondition && Array.from({length: winCondition}, (_, i) => board[getCell(r + i, c)]).every(p => p === player)) return player;
-                if (r <= size - winCondition && c <= size - winCondition && Array.from({length: winCondition}, (_, i) => board[getCell(r + i, c + i)]).every(p => p === player)) return player;
-                if (r <= size - winCondition && c >= winCondition - 1 && Array.from({length: winCondition}, (_, i) => board[getCell(r + i, c - i)]).every(p => p === player)) return player;
-            }
-        }
-        return null;
-    }
+function createNewGameState(size) {
+    let winCondition = size > 4 ? 5 : (size === 4 ? 4 : 3);
+    return {
+        size, winCondition,
+        playersInfo: { X: { name: null, connected: false }, O: { name: null, connected: false } },
+        board: Array(size * size).fill(null),
+        currentPlayer: 'X',
+        gameActive: true,
+        scores: { X: 0, O: 0 }
+    };
 }
 
-// Creamos una única instancia de nuestro juego.
-const game = new Game();
+function checkWin(board, size, winCondition) {
+    // Para la animación, solo calcularemos la línea específica para 3x3
+    if (size === 3) {
+        const lines3x3 = [
+            { id: 'win-row-0', indexes: [0, 1, 2] }, { id: 'win-row-1', indexes: [3, 4, 5] }, { id: 'win-row-2', indexes: [6, 7, 8] },
+            { id: 'win-col-0', indexes: [0, 3, 6] }, { id: 'win-col-1', indexes: [1, 4, 7] }, { id: 'win-col-2', indexes: [2, 5, 8] },
+            { id: 'win-diag-0', indexes: [0, 4, 8] }, { id: 'win-diag-1', indexes: [2, 4, 6] }
+        ];
+        for (const line of lines3x3) {
+            const [a, b, c] = line.indexes;
+            if (board[a] && board[a] === board[b] && board[a] === board[c]) {
+                return { winner: board[a], lineId: line.id }; // Retorna objeto con ganador y línea
+            }
+        }
+    }
+
+    // Para otros tamaños, solo detectamos al ganador sin la línea visual
+    const winnerSymbol = checkWinDynamic(board, size, winCondition);
+    if (winnerSymbol) return { winner: winnerSymbol, lineId: null };
+
+    return null; // No hay ganador
+}
+
+function checkWinDynamic(board, size, winCondition) {
+    const getCell = (r, c) => r * size + c;
+    for (let r = 0; r < size; r++) {
+        for (let c = 0; c < size; c++) {
+            const player = board[getCell(r, c)];
+            if (!player) continue;
+            if (c <= size - winCondition && Array.from({length: winCondition}, (_, i) => board[getCell(r, c + i)]).every(p => p === player)) return player;
+            if (r <= size - winCondition && Array.from({length: winCondition}, (_, i) => board[getCell(r + i, c)]).every(p => p === player)) return player;
+            if (r <= size - winCondition && c <= size - winCondition && Array.from({length: winCondition}, (_, i) => board[getCell(r + i, c + i)]).every(p => p === player)) return player;
+            if (r <= size - winCondition && c >= winCondition - 1 && Array.from({length: winCondition}, (_, i) => board[getCell(r + i, c - i)]).every(p => p === player)) return player;
+        }
+    }
+    return null;
+}
+
+function broadcast(data) {
+    players.forEach(p => { if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify(data)) });
+}
+
+function resetGame() {
+    if (!gameState) return;
+    const oldScores = gameState.scores;
+    const oldPlayerNames = gameState.playersInfo;
+    const size = gameState.size;
+    
+    gameState = createNewGameState(size);
+    gameState.scores = oldScores;
+    gameState.playersInfo = oldPlayerNames;
+    
+    broadcast({ type: 'update', payload: { gameState } });
+}
 
 wss.on('connection', ws => {
-    const player = game.addPlayer(ws);
+    if (players.length >= 2) {
+        ws.send(JSON.stringify({ type: 'error', message: 'La partida ya está llena.' }));
+        ws.close();
+        return;
+    }
+    const player = { ws, symbol: players.length === 0 ? 'X' : 'O' };
+    players.push(player);
 
     ws.on('message', message => {
         try {
-            game.handleMessage(ws, JSON.parse(message));
+            const data = JSON.parse(message);
+            const { type, payload } = data;
+
+            if (type === 'join') {
+                if (!gameState) {
+                    gameState = createNewGameState(payload.size);
+                }
+                gameState.playersInfo[player.symbol] = { name: payload.name, connected: true };
+                ws.send(JSON.stringify({ type: 'assignSymbol', payload: { symbol: player.symbol } }));
+                broadcast({ type: 'update', payload: { gameState } });
+            }
+
+            if (type === 'move') {
+                if (!gameState || !gameState.gameActive || player.symbol !== gameState.currentPlayer) return;
+                if (gameState.board[payload.index] === null) {
+                    gameState.board[payload.index] = gameState.currentPlayer;
+                    const result = checkWin(gameState.board, gameState.size, gameState.winCondition);
+
+                    if (result) {
+                        gameState.gameActive = false;
+                        gameState.scores[result.winner]++;
+                        broadcast({ type: 'gameOver', payload: { winnerSymbol: result.winner, winningLineId: result.lineId, gameState } });
+                    } else if (!gameState.board.includes(null)) {
+                        gameState.gameActive = false;
+                        broadcast({ type: 'gameOver', payload: { winnerSymbol: 'draw', gameState } });
+                    } else {
+                        gameState.currentPlayer = gameState.currentPlayer === 'X' ? 'O' : 'X';
+                        broadcast({ type: 'update', payload: { gameState } });
+                    }
+                }
+            }
+
+            if (type === 'reset') {
+                if(players.length === 2 && gameState) resetGame();
+            }
+
         } catch (error) {
             console.error("Error procesando mensaje:", error);
         }
     });
 
     ws.on('close', () => {
-        game.removePlayer(ws);
+        players = players.filter(p => p.ws !== ws);
+        gameState = null;
+        broadcast({ type: 'opponentLeft' });
     });
 });
 
 const PORT = 3000;
 server.listen(PORT, () => {
-    console.log(`🚀 Servidor optimizado corriendo en http://localhost:${PORT}`);
+    console.log(`🚀 Servidor con línea ganadora corriendo en http://localhost:${PORT}`);
 });
