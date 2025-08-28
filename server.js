@@ -1,4 +1,4 @@
-// server.js - VERSIÓN OPTIMIZADA CON CLASE GAME
+// server.js - VERSIÓN FINAL CON TURNO INICIAL ALEATORIO
 const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
@@ -10,173 +10,220 @@ const wss = new WebSocket.Server({ server });
 
 app.use(express.static('public'));
 
-/**
- * La clase Game encapsula toda la lógica y el estado de una partida.
- */
-class Game {
-    constructor() {
-        this.players = [];
-        this.gameState = null;
-        console.log("Nueva instancia de juego creada. Esperando jugadores.");
-    }
+let players = [];
+let gameState = null;
 
-    // --- Métodos de Gestión de Jugadores ---
+function createNewGameState(size) {
+    let winCondition = size > 4 ? 5 : (size === 4 ? 4 : 3);
+    return {
+        size, winCondition,
+        playersInfo: { X: { name: null, connected: false }, O: { name: null, connected: false } },
+        board: Array(size * size).fill(null),
+        // --- CAMBIO CLAVE AQUÍ ---
+        // Se elige aleatoriamente quién empieza. Math.random() < 0.5 da un 50% de probabilidad.
+        currentPlayer: Math.random() < 0.5 ? 'X' : 'O',
+        gameActive: true,
+        scores: { X: 0, O: 0 },
+        isAIGame: false,
+        lastMoveIndex: null
+    };
+}
 
-    addPlayer(ws) {
-        if (this.players.length >= 2) {
-            ws.send(JSON.stringify({ type: 'error', message: 'La partida ya está llena.' }));
-            ws.close();
-            return null;
-        }
-        const player = {
-            ws,
-            playerId: uuidv4(),
-            symbol: this.players.length === 0 ? 'X' : 'O'
-        };
-        this.players.push(player);
-        console.log(`Jugador ${player.playerId} conectado como ${player.symbol}. Total: ${this.players.length}`);
-        return player;
-    }
-
-    removePlayer(ws) {
-        const disconnectedPlayer = this.players.find(p => p.ws === ws);
-        if (!disconnectedPlayer) return;
-
-        console.log(`Jugador ${disconnectedPlayer.playerId} desconectado.`);
-        this.players = this.players.filter(p => p.ws !== ws);
-
-        if (this.players.length < 2) {
-            this.gameState = null; // Resetea el juego por completo.
-            this.broadcast({ type: 'opponentLeft' });
-            console.log("Partida terminada por desconexión.");
+function checkWin(board, size, winCondition) {
+    const getCell = (r, c) => r * size + c;
+    for (let r = 0; r < size; r++) {
+        for (let c = 0; c < size; c++) {
+            const player = board[getCell(r, c)];
+            if (!player) continue;
+            if (c <= size - winCondition && Array.from({length: winCondition}, (_, i) => board[getCell(r, c + i)]).every(p => p === player)) return player;
+            if (r <= size - winCondition && Array.from({length: winCondition}, (_, i) => board[getCell(r + i, c)]).every(p => p === player)) return player;
+            if (r <= size - winCondition && c <= size - winCondition && Array.from({length: winCondition}, (_, i) => board[getCell(r + i, c + i)]).every(p => p === player)) return player;
+            if (r <= size - winCondition && c >= winCondition - 1 && Array.from({length: winCondition}, (_, i) => board[getCell(r + i, c - i)]).every(p => p === player)) return player;
         }
     }
+    if (!board.includes(null)) return 'draw';
+    return null;
+}
 
-    findPlayer(ws) {
-        return this.players.find(p => p.ws === ws);
-    }
-    
-    broadcast(data) {
-        this.players.forEach(player => {
-            if (player.ws && player.ws.readyState === WebSocket.OPEN) {
-                player.ws.send(JSON.stringify(data));
-            }
-        });
-    }
-
-    // --- Métodos de Lógica del Juego ---
-
-    handleMessage(ws, data) {
-        const player = this.findPlayer(ws);
-        if (!player) return;
-
-        const { type, payload } = data;
-
-        switch (type) {
-            case 'join':
-                this._handleJoin(player, payload);
-                break;
-            case 'move':
-                this._handleMove(player, payload);
-                break;
-            case 'reset':
-                this._handleReset();
-                break;
+function broadcast(data) {
+    players.forEach(player => {
+        if (player.ws && player.ws.readyState === WebSocket.OPEN) {
+            player.ws.send(JSON.stringify(data));
         }
+    });
+}
+
+const scores = { 'X': -10, 'O': 10, 'draw': 0 };
+
+function minimax(board, isMaximizing) {
+    const winner = checkWin(board, gameState.size, gameState.winCondition);
+    if (winner !== null) {
+        return scores[winner];
     }
 
-    _handleJoin(player, payload) {
-        if (!this.gameState) {
-            this.gameState = this._createNewGameState(payload.size);
-        }
-        this.gameState.playersInfo[player.symbol] = { id: player.playerId, name: payload.name, connected: true };
-        player.ws.send(JSON.stringify({ type: 'assignIdentity', payload: { symbol: player.symbol, playerId: player.playerId } }));
-        this.broadcast({ type: 'update', payload: { gameState: this.gameState } });
-    }
-
-    _handleMove(player, payload) {
-        if (!this.gameState || !this.gameState.gameActive || player.symbol !== this.gameState.currentPlayer) return;
-        if (this.gameState.board[payload.index] !== null) return;
-
-        this.gameState.board[payload.index] = this.gameState.currentPlayer;
-        const winnerSymbol = this._checkWin();
-
-        if (winnerSymbol) {
-            this.gameState.gameActive = false;
-            this.gameState.scores[winnerSymbol]++;
-            this.broadcast({ type: 'gameOver', payload: { winnerSymbol, gameState: this.gameState } });
-        } else if (!this.gameState.board.includes(null)) {
-            this.gameState.gameActive = false;
-            this.broadcast({ type: 'gameOver', payload: { winnerSymbol: 'draw', gameState: this.gameState } });
-        } else {
-            this.gameState.currentPlayer = this.gameState.currentPlayer === 'X' ? 'O' : 'X';
-            this.broadcast({ type: 'update', payload: { gameState: this.gameState } });
-        }
-    }
-    
-    _handleReset() {
-        if (!this.gameState || this.players.length < 2) return;
-        const oldScores = this.gameState.scores;
-        const oldPlayerNames = this.gameState.playersInfo;
-        const size = this.gameState.size;
-        
-        this.gameState = this._createNewGameState(size);
-        this.gameState.scores = oldScores;
-        this.gameState.playersInfo = oldPlayerNames;
-        this.broadcast({ type: 'update', payload: { gameState: this.gameState } });
-    }
-
-    _createNewGameState(size) {
-        let winCondition = size > 4 ? 5 : (size === 4 ? 4 : 3);
-        return {
-            size, winCondition,
-            playersInfo: { X: { id: null, name: null, connected: false }, O: { id: null, name: null, connected: false } },
-            board: Array(size * size).fill(null),
-            currentPlayer: 'X',
-            gameActive: true,
-            scores: { X: 0, O: 0 }
-        };
-    }
-    
-    _checkWin() {
-        const { board, size, winCondition } = this.gameState;
-        const getCell = (r, c) => r * size + c;
-
-        for (let r = 0; r < size; r++) {
-            for (let c = 0; c < size; c++) {
-                const player = board[getCell(r, c)];
-                if (!player) continue;
-
-                if (c <= size - winCondition && Array.from({length: winCondition}, (_, i) => board[getCell(r, c + i)]).every(p => p === player)) return player;
-                if (r <= size - winCondition && Array.from({length: winCondition}, (_, i) => board[getCell(r + i, c)]).every(p => p === player)) return player;
-                if (r <= size - winCondition && c <= size - winCondition && Array.from({length: winCondition}, (_, i) => board[getCell(r + i, c + i)]).every(p => p === player)) return player;
-                if (r <= size - winCondition && c >= winCondition - 1 && Array.from({length: winCondition}, (_, i) => board[getCell(r + i, c - i)]).every(p => p === player)) return player;
+    if (isMaximizing) {
+        let bestScore = -Infinity;
+        for (let i = 0; i < board.length; i++) {
+            if (board[i] === null) {
+                board[i] = 'O';
+                let score = minimax(board, false);
+                board[i] = null;
+                bestScore = Math.max(score, bestScore);
             }
         }
-        return null;
+        return bestScore;
+    } else {
+        let bestScore = Infinity;
+        for (let i = 0; i < board.length; i++) {
+            if (board[i] === null) {
+                board[i] = 'X';
+                let score = minimax(board, true);
+                board[i] = null;
+                bestScore = Math.min(score, bestScore);
+            }
+        }
+        return bestScore;
     }
 }
 
-// Creamos una única instancia de nuestro juego.
-const game = new Game();
+function makeAIMove() {
+    if (!gameState || !gameState.gameActive || gameState.currentPlayer !== 'O') return;
+
+    setTimeout(() => {
+        let bestScore = -Infinity;
+        let bestMove;
+
+        for (let i = 0; i < gameState.board.length; i++) {
+            if (gameState.board[i] === null) {
+                gameState.board[i] = 'O';
+                let score = minimax(gameState.board, false);
+                gameState.board[i] = null;
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestMove = i;
+                }
+            }
+        }
+        
+        gameState.board[bestMove] = 'O';
+        gameState.lastMoveIndex = bestMove;
+        
+        const winnerSymbol = checkWin(gameState.board, gameState.size, gameState.winCondition);
+        if (winnerSymbol) {
+            gameState.gameActive = false;
+            gameState.scores[winnerSymbol]++;
+            broadcast({ type: 'gameOver', payload: { winnerSymbol, gameState } });
+        } else {
+            gameState.currentPlayer = 'X';
+            broadcast({ type: 'update', payload: { gameState } });
+        }
+    }, 750);
+}
+
+function resetGame() {
+    if (!gameState) return;
+    const oldScores = gameState.scores;
+    const oldPlayerNames = gameState.playersInfo;
+    const size = gameState.size;
+    const isAIGame = gameState.isAIGame;
+
+    gameState = createNewGameState(size); // La aleatoriedad ocurre aquí
+    gameState.scores = oldScores;
+    gameState.playersInfo = oldPlayerNames;
+    gameState.isAIGame = isAIGame;
+    
+    broadcast({ type: 'update', payload: { gameState } });
+}
 
 wss.on('connection', ws => {
-    const player = game.addPlayer(ws);
-
     ws.on('message', message => {
         try {
-            game.handleMessage(ws, JSON.parse(message));
+            const data = JSON.parse(message);
+            const { type, payload } = data;
+            
+            if (type === 'startGameAI') {
+                players = [{ ws, symbol: 'X' }];
+                gameState = createNewGameState(payload.size); // La aleatoriedad ocurre aquí
+                gameState.isAIGame = true;
+                gameState.playersInfo.X = { name: payload.name, connected: true };
+                gameState.playersInfo.O = { name: 'Computadora', connected: true };
+                
+                ws.send(JSON.stringify({ type: 'assignSymbol', payload: { symbol: 'X' } }));
+                broadcast({ type: 'update', payload: { gameState } });
+
+                // Si la IA empieza, debe hacer su movimiento
+                if (gameState.currentPlayer === 'O') {
+                    makeAIMove();
+                }
+                return;
+            }
+
+            if (type === 'join') {
+                if (players.length >= 2) {
+                    ws.send(JSON.stringify({ type: 'error', payload: { message: 'La partida ya está llena.' } }));
+                    return;
+                }
+                const player = { ws, symbol: players.length === 0 ? 'X' : 'O' };
+                players.push(player);
+
+                if (!gameState) {
+                    gameState = createNewGameState(payload.size); // La aleatoriedad ocurre aquí
+                }
+                gameState.playersInfo[player.symbol] = { name: payload.name, connected: true };
+                ws.send(JSON.stringify({ type: 'assignSymbol', payload: { symbol: player.symbol } }));
+                broadcast({ type: 'update', payload: { gameState } });
+            }
+
+            const player = players.find(p => p.ws === ws);
+            if (!player) return;
+
+            if (type === 'move' && gameState && gameState.gameActive && player.symbol === gameState.currentPlayer) {
+                if (gameState.board[payload.index] === null) {
+                    gameState.board[payload.index] = gameState.currentPlayer;
+                    gameState.lastMoveIndex = payload.index;
+                    const winnerSymbol = checkWin(gameState.board, gameState.size, gameState.winCondition);
+
+                    if (winnerSymbol) {
+                        gameState.gameActive = false;
+                        gameState.scores[winnerSymbol]++;
+                        broadcast({ type: 'gameOver', payload: { winnerSymbol, gameState } });
+                    } else {
+                        gameState.currentPlayer = gameState.currentPlayer === 'X' ? 'O' : 'X';
+                        broadcast({ type: 'update', payload: { gameState } });
+                        
+                        if (gameState.isAIGame && gameState.currentPlayer === 'O') {
+                            makeAIMove();
+                        }
+                    }
+                }
+            }
+            
+            if (type === 'reset') {
+                 if (gameState) {
+                    resetGame();
+                    if (gameState.isAIGame && gameState.currentPlayer === 'O') {
+                        makeAIMove();
+                    }
+                }
+            }
         } catch (error) {
             console.error("Error procesando mensaje:", error);
         }
     });
 
     ws.on('close', () => {
-        game.removePlayer(ws);
+        players = players.filter(p => p.ws !== ws);
+        if (players.length < 2 && gameState && !gameState.isAIGame) {
+            gameState = null;
+            broadcast({ type: 'opponentLeft' });
+        } else if (players.length < 1 && gameState && gameState.isAIGame) {
+            gameState = null;
+        }
+        console.log(`Jugador desconectado. Total: ${players.length}`);
     });
 });
 
 const PORT = 3000;
 server.listen(PORT, () => {
-    console.log(`🚀 Servidor optimizado corriendo en http://localhost:${PORT}`);
+    console.log(`🚀 Servidor con turno aleatorio corriendo en http://localhost:${PORT}`);
 });
