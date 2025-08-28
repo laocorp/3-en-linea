@@ -1,8 +1,20 @@
+<<<<<<< HEAD
 // public/script.js - VERSIÓN FINAL
 const soundMove = new Audio('/sounds/move.mp3');
 const soundWin = new Audio('/sounds/win.mp3');
 const soundDraw = new Audio('/sounds/draw.mp3');
 
+=======
+// public/script.js - VERSIÓN FINAL Y PULIDA
+
+// --- OBJETOS DE AUDIO ---
+// Se definen al inicio. Usamos rutas absolutas para mayor fiabilidad.
+const soundMove = new Audio('/sounds/move.mp3');
+const soundWin = new Audio('/sounds/win.mp3');
+const soundDraw = new Audio('/sounds/draw.mp3');
+
+// --- SELECTORES DEL DOM ---
+>>>>>>> 8b27bcac5e6d909d96a92ebe232ececa4ea6eff0
 const boardElement = document.getElementById('board');
 const statusElement = document.getElementById('status');
 const gameSection = document.getElementById('game-section');
@@ -12,10 +24,15 @@ const modal = document.getElementById('modal');
 const modalContent = document.getElementById('modal-content');
 let cells = [];
 
+<<<<<<< HEAD
+=======
+// --- ESTADO DEL CLIENTE ---
+>>>>>>> 8b27bcac5e6d909d96a92ebe232ececa4ea6eff0
 const ws = new WebSocket(`${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}`);
 let mySymbol = null;
 let currentBoardSize = 0;
 let isGameActive = false;
+<<<<<<< HEAD
 let audioUnlocked = false;
 let lastMoveCount = 0;
 
@@ -35,11 +52,38 @@ function showModal(content) {
 
 function hideModal() {
     modal.classList.add('opacity-0', 'pointer-events-none');
+=======
+let audioUnlocked = false; // Para controlar si el audio ya fue inicializado
+let lastMoveCount = 0;
+let cells = [];
+
+// --- FUNCIONES DE LA INTERFAZ ---
+
+/**
+ * Desbloquea el audio después de la primera interacción del usuario para cumplir
+ * con las políticas de autoplay de los navegadores.
+ */
+function unlockAudio() {
+    if (audioUnlocked) return;
+    // Un truco común: intenta reproducir y pausar cada sonido.
+    soundMove.play().catch(() => {});
+    soundMove.pause();
+    soundWin.play().catch(() => {});
+    soundWin.pause();
+    soundDraw.play().catch(() => {});
+    soundDraw.pause();
+    audioUnlocked = true;
+    console.log("Contexto de audio desbloqueado.");
+>>>>>>> 8b27bcac5e6d909d96a92ebe232ececa4ea6eff0
 }
 
 function showJoinModal() {
     const joinHTML = `
+<<<<<<< HEAD
         <h1 class="text-4xl font-bold text-center bg-gradient-to-r from-violet-400 to-cyan-400 text-transparent bg-clip-text">3 EN RAYA</h1>
+=======
+        <h1 class="text-4xl font-bold text-center bg-gradient-to-r from-violet-400 to-cyan-400 text-transparent bg-clip-text">Tic-Tac-Toe</h1>
+>>>>>>> 8b27bcac5e6d909d96a92ebe232ececa4ea6eff0
         <input type="text" id="name-input" placeholder="Escribe tu nombre" maxlength="12" class="bg-gray-900/70 border border-gray-700 rounded-lg p-3 w-full focus:outline-none focus:ring-2 focus:ring-violet-500 transition">
         <div>
             <h2 class="text-lg font-semibold text-center text-gray-400 mb-3">Elige el tamaño</h2>
@@ -55,6 +99,7 @@ function showJoinModal() {
             <button id="join-friend-button" class="w-full bg-violet-500 text-white font-bold py-3 px-6 rounded-lg hover:bg-violet-600 transition-all duration-300 transform hover:scale-105 shadow-lg">Jugar con Amigo</button>
         </div>
     `;
+<<<<<<< HEAD
     showModal(joinHTML);
 
     document.getElementById('join-ai-button').addEventListener('click', () => {
@@ -68,6 +113,16 @@ function showJoinModal() {
     document.getElementById('join-friend-button').addEventListener('click', () => {
         unlockAudio();
         const name = document.getElementById('name-input').value;
+=======
+    modalContent.innerHTML = joinHTML;
+    modal.classList.remove('opacity-0', 'pointer-events-none');
+
+    const joinButton = document.getElementById('join-button');
+    joinButton.addEventListener('click', () => {
+        unlockAudio(); // Se llama aquí, en la primera interacción del usuario.
+        const nameInput = document.getElementById('name-input');
+        const name = nameInput.value;
+>>>>>>> 8b27bcac5e6d909d96a92ebe232ececa4ea6eff0
         if (!name) { alert('Por favor, escribe tu nombre.'); return; }
         const size = document.querySelector('input[name="boardSize"]:checked').value;
         sendMessage('join', { name, size: parseInt(size) });
@@ -76,6 +131,7 @@ function showJoinModal() {
 }
 
 function showGameOverModal(winnerSymbol, gameState) {
+<<<<<<< HEAD
     setTimeout(() => {
         let title, body;
         if (winnerSymbol === 'draw') {
@@ -84,6 +140,19 @@ function showGameOverModal(winnerSymbol, gameState) {
         } else {
             const winnerName = gameState.playersInfo[winnerSymbol].name;
             title = "¡Tenemos un Ganador!"; body = `Felicidades, <span class="font-bold text-white">${winnerName}</span>. ¡Has ganado la partida!`;
+=======
+    // Se envuelve toda la lógica en un setTimeout para dar tiempo a la animación.
+    setTimeout(() => {
+        let title, body;
+        if (winnerSymbol === 'draw') {
+            title = "¡Es un Empate!";
+            body = "Buena partida. ¿Listos para la revancha?";
+            soundDraw.play().catch(e => console.error("Error al reproducir sonido:", e));
+        } else {
+            const winnerName = gameState.playersInfo[winnerSymbol].name;
+            title = "¡Tenemos un Ganador!";
+            body = `Felicidades, <span class="font-bold text-white">${winnerName}</span>. ¡Has ganado la partida!`;
+>>>>>>> 8b27bcac5e6d909d96a92ebe232ececa4ea6eff0
             soundWin.play().catch(e => console.error("Error al reproducir sonido:", e));
         }
         
@@ -92,6 +161,7 @@ function showGameOverModal(winnerSymbol, gameState) {
             <p class="text-xl text-gray-300">${body}</p>
             <button id="reset-button" class="w-full bg-gradient-to-r from-violet-500 to-cyan-500 text-white font-bold py-3 px-6 rounded-lg hover:from-violet-600 hover:to-cyan-600 transition-all duration-300 transform hover:scale-105 shadow-lg">Jugar de Nuevo</button>
         `;
+<<<<<<< HEAD
         showModal(gameOverHTML);
 
         document.getElementById('reset-button').addEventListener('click', () => {
@@ -99,6 +169,21 @@ function showGameOverModal(winnerSymbol, gameState) {
             sendMessage('reset');
         });
     }, 1000);
+=======
+        modalContent.innerHTML = gameOverHTML;
+        modal.classList.remove('opacity-0', 'pointer-events-none');
+        
+        const resetButton = document.getElementById('reset-button');
+        resetButton.addEventListener('click', () => {
+            hideModal();
+            sendMessage('reset');
+        });
+    }, 1000); // 1 segundo de retraso
+}
+
+function hideModal() {
+    modal.classList.add('opacity-0', 'pointer-events-none');
+>>>>>>> 8b27bcac5e6d909d96a92ebe232ececa4ea6eff0
 }
 
 function createBoard(size) {
@@ -107,7 +192,10 @@ function createBoard(size) {
     boardElement.innerHTML = '';
     cells = [];
     boardElement.style.gridTemplateColumns = `repeat(${size}, 1fr)`;
+<<<<<<< HEAD
 
+=======
+>>>>>>> 8b27bcac5e6d909d96a92ebe232ececa4ea6eff0
     for (let i = 0; i < size * size; i++) {
         const cell = document.createElement('div');
         cell.classList.add('bg-gray-800/50', 'rounded-lg', 'flex', 'items-center', 'justify-center', 'font-bold', 'hover:bg-gray-700/50', 'cursor-pointer', 'transition-all', 'duration-200', 'border', 'border-gray-700/50');
@@ -125,6 +213,7 @@ function setupCellListeners() {
     });
 }
 
+<<<<<<< HEAD
 function renderBoard(board, lastMoveIndex) {
     const prevLastMove = document.querySelector('.last-move');
     if (prevLastMove) prevLastMove.classList.remove('last-move');
@@ -140,6 +229,19 @@ function renderBoard(board, lastMoveIndex) {
     if (lastMoveIndex !== null && cells[lastMoveIndex]) {
         cells[lastMoveIndex].classList.add('last-move');
     }
+=======
+function renderBoard(board) {
+    board.forEach((value, index) => {
+        if (cells[index]) {
+            const icon = value === 'X' ? ICON_X : (value === 'O' ? ICON_O : '');
+            if (cells[index].innerHTML === '' && icon !== '') {
+                cells[index].innerHTML = icon;
+            } else if (icon === '') {
+                cells[index].innerHTML = '';
+            }
+        }
+    });
+>>>>>>> 8b27bcac5e6d909d96a92ebe232ececa4ea6eff0
 }
 
 function updateUI(gameState) {
@@ -147,7 +249,11 @@ function updateUI(gameState) {
     gameSection.classList.remove('opacity-0');
     isGameActive = gameState.gameActive;
     createBoard(gameState.size);
+<<<<<<< HEAD
     renderBoard(gameState.board, gameState.lastMoveIndex);
+=======
+    renderBoard(gameState.board);
+>>>>>>> 8b27bcac5e6d909d96a92ebe232ececa4ea6eff0
     
     const playerXName = gameState.playersInfo.X.name || 'Jugador X';
     const playerOName = gameState.playersInfo.O.name || 'Jugador O';
@@ -157,6 +263,7 @@ function updateUI(gameState) {
     playerOScoreElement.querySelector('.score').textContent = gameState.scores.O;
 
     const { playersInfo, currentPlayer, gameActive } = gameState;
+<<<<<<< HEAD
     const turnIndicatorElement = document.querySelector('.turn-active');
     if (turnIndicatorElement) turnIndicatorElement.classList.remove('turn-active');
     if (gameActive) {
@@ -171,6 +278,16 @@ function updateUI(gameState) {
             statusElement.innerHTML = "Es tu turno";
         } else {
             statusElement.innerHTML = `Turno de ${playersInfo[currentPlayer].name}<span class="thinking-dots"></span>`;
+=======
+    if (gameActive) {
+        if (!playersInfo.X.connected || !playersInfo.O.connected) {
+            statusElement.textContent = "Esperando que el oponente se reconecte...";
+            isGameActive = false;
+        } else if (mySymbol === currentPlayer) {
+            statusElement.textContent = "Es tu turno";
+        } else {
+            statusElement.textContent = `Turno de ${playersInfo[currentPlayer].name}`;
+>>>>>>> 8b27bcac5e6d909d96a92ebe232ececa4ea6eff0
         }
     }
 }
@@ -181,7 +298,16 @@ function sendMessage(type, payload) {
 
 ws.onopen = () => {
     console.log("Conectado al servidor.");
+<<<<<<< HEAD
     showJoinModal();
+=======
+    const playerId = sessionStorage.getItem('playerId');
+    if (playerId) {
+        sendMessage('reconnect', { playerId });
+    } else {
+        showJoinModal();
+    }
+>>>>>>> 8b27bcac5e6d909d96a92ebe232ececa4ea6eff0
 };
 
 ws.onmessage = (event) => {
@@ -189,18 +315,31 @@ ws.onmessage = (event) => {
         const { type, payload } = JSON.parse(event.data);
 
         switch (type) {
+<<<<<<< HEAD
             case 'assignSymbol':
                 mySymbol = payload.symbol;
+=======
+            case 'assignIdentity':
+                mySymbol = payload.symbol;
+                sessionStorage.setItem('playerId', payload.playerId);
+>>>>>>> 8b27bcac5e6d909d96a92ebe232ececa4ea6eff0
                 hideModal();
                 break;
             case 'update':
                 hideModal();
                 const moveCount = payload.gameState.board.filter(Boolean).length;
+<<<<<<< HEAD
                 if (moveCount > lastMoveCount) {
                     soundMove.play().catch(e => console.error("Error al reproducir sonido:", e));
                 }
                 lastMoveCount = moveCount;
                 if(moveCount === 0) lastMoveCount = 0;
+=======
+                if (moveCount > 0 && moveCount !== lastMoveCount) {
+                    soundMove.play().catch(e => console.error("Error al reproducir sonido de movimiento:", e));
+                }
+                lastMoveCount = moveCount;
+>>>>>>> 8b27bcac5e6d909d96a92ebe232ececa4ea6eff0
                 updateUI(payload.gameState);
                 break;
             case 'gameOver':
@@ -209,8 +348,17 @@ ws.onmessage = (event) => {
                 updateUI(payload.gameState);
                 showGameOverModal(payload.winnerSymbol, payload.gameState);
                 break;
+<<<<<<< HEAD
             case 'opponentLeft':
                 alert("Tu oponente se ha desconectado.");
+=======
+            case 'opponentDisconnected':
+                updateUI(payload.gameState);
+                break;
+            case 'gameEnded':
+                alert(payload.message);
+                sessionStorage.removeItem('playerId');
+>>>>>>> 8b27bcac5e6d909d96a92ebe232ececa4ea6eff0
                 window.location.reload();
                 break;
             case 'error':
