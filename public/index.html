@@ -3,14 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3 EN RAYA</title>
+    <title>Tic Tac Toe - Neon</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
       body { font-family: 'Poppins', sans-serif; }
-      /* Animación para el brillo del turno activo */
       @keyframes subtle-glow {
         0%, 100% { box-shadow: 0 0 15px theme('colors.violet.500 / 0.5'), inset 0 0 5px theme('colors.violet.600 / 0.3'); }
         50% { box-shadow: 0 0 25px theme('colors.violet.500 / 0.7'), inset 0 0 8px theme('colors.violet.600 / 0.5'); }
@@ -19,7 +18,6 @@
         animation: subtle-glow 2s infinite ease-in-out;
         border-color: theme('colors.violet.400');
       }
-      /* Animación para la aparición de los iconos X y O */
       .symbol-enter {
         animation: popIn 0.3s cubic-bezier(0.68, -0.55, 0.27, 1.55);
       }
@@ -27,16 +25,10 @@
         from { transform: scale(0.4); opacity: 0; }
         to { transform: scale(1); opacity: 1; }
       }
-<<<<<<< HEAD
-       /* Estilo para la última celda jugada */
-=======
-      /* Estilo para la última celda jugada */
->>>>>>> 8b27bcac5e6d909d96a92ebe232ececa4ea6eff0
       .last-move {
         box-shadow: 0 0 20px theme('colors.cyan.500');
         border-color: theme('colors.cyan.400');
       }
-      /* Animación para los puntos suspensivos */
       .thinking-dots::after {
         content: '...';
         display: inline-block;
@@ -75,9 +67,9 @@
 
     <div id="modal" class="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 opacity-0 pointer-events-none transition-opacity duration-300">
         <div id="modal-content" class="bg-gray-800 border border-gray-700 p-8 rounded-2xl shadow-2xl text-center flex flex-col gap-6 w-full max-w-sm mx-4">
-            </div>
+        </div>
     </div>
 
-    <script src="script.js?v=1.0"></script>
+    <script src="script.js"></script>
 </body>
 </html>
